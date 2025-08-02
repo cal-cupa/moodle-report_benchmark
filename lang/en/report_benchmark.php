@@ -24,6 +24,7 @@
  */
 
 $string['adminreport'] = 'System Benchmark';
+$string['back'] = 'Back to test selection';
 $string['benchfail'] = '<b>Watch out!</b><br />The performance of your Moodle installation is not optimal.';
 $string['benchmark'] = 'Benchmark';
 $string['benchmark:view'] = 'View the Benchmark report';
@@ -63,6 +64,8 @@ $string['querytype2name'] = 'Database performance (#2)';
 $string['redo'] = 'Start the benchmark again';
 $string['score'] = 'Score';
 $string['scoremsg'] = 'Benchmark Score:';
+$string['selectall'] = 'Select all tests';
+$string['selecttests'] = 'Select tests to run';
 $string['slowdatabaselabel'] = 'The database seems too slow.';
 $string['slowdatabasesolution'] = '<ul><li>Check <a href="https://mariadb.com/kb/en/library/mysqlcheck/" target="_blank">the database integrity</a>.</li><li>Optimize <a href="https://mariadb.com/kb/en/library/optimization-and-tuning/" target="_blank">the database</a>.</li></ul>';
 $string['slowharddrivelabel'] = 'The hard drive seems too slow.';

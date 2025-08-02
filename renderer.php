@@ -47,11 +47,120 @@ class report_benchmark_renderer extends plugin_renderer_base {
         $out .= html_writer::tag('p', get_string('infoaverage', 'report_benchmark'));
         $out .= html_writer::tag('p', get_string('infodisclaimer', 'report_benchmark'));
 
+        // Get the list of available tests without running them.
+        $tests = report_benchmark::get_available_tests_static();
+        
+        // Form to select tests.
+        $out .= html_writer::start_tag('form', [
+            'action' => new moodle_url('/report/benchmark/index.php', ['step' => 'run']),
+            'method' => 'post'
+        ]);
+        
+        $out .= html_writer::start_div('benchmarktests');
+        $out .= html_writer::tag('h4', get_string('selecttests', 'report_benchmark'));
+        
+        $out .= html_writer::start_tag('div', ['class' => 'form-check']);
+        $selectallcheckbox = html_writer::checkbox('selectall', '1', true, get_string('selectall', 'report_benchmark'), [
+            'class' => 'form-check-input',
+            'id' => 'selectall',
+            'onclick' => 'toggleAllTests(this)'
+        ]);
+        $out .= html_writer::tag('label', $selectallcheckbox, ['class' => 'form-check-label']);
+        $out .= html_writer::end_tag('div');
+        
+        $out .= html_writer::tag('hr', '');
+        
+        foreach ($tests as $test) {
+            $out .= html_writer::start_tag('div', ['class' => 'form-check']);
+            $testcheckbox = html_writer::checkbox('tests[]', $test, true, get_string($test.'name', 'report_benchmark'), [
+                'class' => 'form-check-input test-checkbox'
+            ]);
+            $out .= html_writer::tag('label', $testcheckbox, ['class' => 'form-check-label']);
+            $out .= html_writer::end_tag('div');
+        }
+        
+        $out .= html_writer::end_div();
+
         // Button to start the test.
         $out .= html_writer::start_div('continuebutton');
-        $out .= html_writer::link(new moodle_url('/report/benchmark/index.php', ['step' => 'run']),
-                get_string('start', 'report_benchmark'), ['class' => 'btn btn-primary']);
+        $out .= html_writer::tag('button', get_string('start', 'report_benchmark'), [
+            'type' => 'submit',
+            'class' => 'btn btn-primary'
+        ]);
         $out .= html_writer::end_div();
+        
+        $out .= html_writer::end_tag('form');
+        
+        // JavaScript for select all functionality and localStorage.
+        $out .= html_writer::script('
+            // Toggle all test checkboxes
+            function toggleAllTests(selectAllCheckbox) {
+                var checkboxes = document.querySelectorAll(".test-checkbox");
+                checkboxes.forEach(function(checkbox) {
+                    checkbox.checked = selectAllCheckbox.checked;
+                });
+                saveCheckboxStates();
+            }
+            
+            // Save checkbox states to localStorage
+            function saveCheckboxStates() {
+                var checkboxes = document.querySelectorAll(".test-checkbox");
+                var states = {};
+                checkboxes.forEach(function(checkbox) {
+                    states[checkbox.value] = checkbox.checked;
+                });
+                localStorage.setItem("benchmark_test_selection", JSON.stringify(states));
+            }
+            
+            // Restore checkbox states from localStorage
+            function restoreCheckboxStates() {
+                var saved = localStorage.getItem("benchmark_test_selection");
+                if (saved) {
+                    var states = JSON.parse(saved);
+                    var checkboxes = document.querySelectorAll(".test-checkbox");
+                    var anyUnchecked = false;
+                    
+                    checkboxes.forEach(function(checkbox) {
+                        if (states.hasOwnProperty(checkbox.value)) {
+                            checkbox.checked = states[checkbox.value];
+                            if (!states[checkbox.value]) {
+                                anyUnchecked = true;
+                            }
+                        }
+                    });
+                    
+                    // Update select all checkbox
+                    var selectAll = document.getElementById("selectall");
+                    if (selectAll) {
+                        selectAll.checked = !anyUnchecked;
+                    }
+                }
+            }
+            
+            // Add change listeners to save state
+            document.addEventListener("DOMContentLoaded", function() {
+                restoreCheckboxStates();
+                
+                var checkboxes = document.querySelectorAll(".test-checkbox");
+                checkboxes.forEach(function(checkbox) {
+                    checkbox.addEventListener("change", function() {
+                        saveCheckboxStates();
+                        
+                        // Update select all checkbox
+                        var allChecked = true;
+                        checkboxes.forEach(function(cb) {
+                            if (!cb.checked) {
+                                allChecked = false;
+                            }
+                        });
+                        var selectAll = document.getElementById("selectall");
+                        if (selectAll) {
+                            selectAll.checked = allChecked;
+                        }
+                    });
+                });
+            });
+        ');
 
         // Footer.
         $out .= $this->output->footer();
@@ -68,8 +177,11 @@ class report_benchmark_renderer extends plugin_renderer_base {
      */
     public function display() {
 
-        // Load the benchmark class.
-        $bench = new report_benchmark();
+        // Get selected tests from POST data.
+        $selectedtests = optional_param_array('tests', null, PARAM_TEXT);
+
+        // Load the benchmark class with selected tests.
+        $bench = new report_benchmark($selectedtests);
 
         // Header.
         $out  = $this->output->header();
@@ -109,7 +221,14 @@ class report_benchmark_renderer extends plugin_renderer_base {
         foreach ($results as $result) {
 
             $row = new html_table_row();
-            $row->attributes['class'] = 'bench_'.$result['name'];
+            $rowclass = 'bench_'.$result['name'];
+            
+            // Add class for non-executed tests.
+            if (!$result['executed']) {
+                $rowclass .= ' benchmark-not-executed';
+            }
+            
+            $row->attributes['class'] = $rowclass;
 
             $cell = new html_table_cell($result['id']);
             $row->cells[] = $cell;
@@ -120,12 +239,26 @@ class report_benchmark_renderer extends plugin_renderer_base {
             $text .= html_writer::end_div();
             $cell->text = $text;
             $row->cells[] = $cell;
-            $cell = new html_table_cell(number_format($result['during'], 3, '.', null));
-            $cell->attributes['class'] = $result['class'];
+            
+            if ($result['executed']) {
+                $cell = new html_table_cell(number_format($result['during'], 3, '.', null));
+                $cell->attributes['class'] = $result['class'];
+            } else {
+                $cell = new html_table_cell('-');
+                $cell->attributes['class'] = 'text-muted';
+            }
             $row->cells[] = $cell;
-            $cell = new html_table_cell($result['limit']);
+            
+            $cell = new html_table_cell($result['executed'] ? $result['limit'] : '-');
+            if (!$result['executed']) {
+                $cell->attributes['class'] = 'text-muted';
+            }
             $row->cells[] = $cell;
-            $cell = new html_table_cell($result['over']);
+            
+            $cell = new html_table_cell($result['executed'] ? $result['over'] : '-');
+            if (!$result['executed']) {
+                $cell->attributes['class'] = 'text-muted';
+            }
             $row->cells[] = $cell;
 
             $table->data[] = $row;
@@ -167,7 +300,7 @@ class report_benchmark_renderer extends plugin_renderer_base {
         // Contruct and return the fail array without duplicate values.
         $fails = [];
         foreach ($results as $result) {
-            if ($result['during'] >= $result['limit']) {
+            if ($result['executed'] && $result['during'] >= $result['limit']) {
                 $fails[] = ['fail' => $result['fail'], 'url' => $result['url']];
             }
         }
@@ -199,6 +332,9 @@ class report_benchmark_renderer extends plugin_renderer_base {
 
         $out .= html_writer::link(new moodle_url('https://moodle.org/mod/forum/discuss.php', ['d' => '335282']),
             get_string('benchshare', 'report_benchmark'), ['class' => 'btn btn-default', 'target' => '_blank']);
+
+        $out .= html_writer::link(new moodle_url('/report/benchmark/index.php'),
+            get_string('back', 'report_benchmark'), ['class' => 'btn btn-secondary']);
 
         $out .= html_writer::link(new moodle_url('/report/benchmark/index.php', ['step' => 'run']),
             get_string('redo', 'report_benchmark'), ['class' => 'btn btn-primary']);

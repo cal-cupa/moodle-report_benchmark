@@ -41,40 +41,67 @@ class report_benchmark {
     private $results = [];
 
     /**
-     * benchmark constructor.
+     * Selected tests to run.
+     *
+     * @var array Selected tests.
      */
-    public function __construct() {
+    private $selectedtests = [];
+
+    /**
+     * benchmark constructor.
+     *
+     * @param array $selectedtests Optional array of test names to run
+     */
+    public function __construct($selectedtests = null) {
 
         // Get the list of test.
         $tests  = $this->get_tests();
         $benchs = [];
         $idtest = 0;
 
+        // Store selected tests or use all tests if none specified.
+        $this->selectedtests = $selectedtests !== null ? $selectedtests : $tests;
+
         foreach ($tests as $name) {
 
             ++$idtest;
 
-            // Initialize and execute the test.
-            $start  = microtime(true);
-            $result = $this->start_test($name);
+            if (in_array($name, $this->selectedtests)) {
+                // Initialize and execute the test.
+                $start  = microtime(true);
+                $result = $this->start_test($name);
 
-            // Populate if empty result.
-            empty($result['limit']) ? $result['limit'] = 0 : null;
-            empty($result['over']) ? $result['over'] = 0 : null;
+                // Populate if empty result.
+                empty($result['limit']) ? $result['limit'] = 0 : null;
+                empty($result['over']) ? $result['over'] = 0 : null;
 
-            // Overwrite the result if start/stop if defined.
-            $overstart = isset($result['start']) ? $result['start'] : $start;
-            $overstop  = isset($result['stop']) ? $result['stop'] : microtime(true);
-            $stop      = round($overstop - $overstart, 3);
+                // Overwrite the result if start/stop if defined.
+                $overstart = isset($result['start']) ? $result['start'] : $start;
+                $overstop  = isset($result['stop']) ? $result['stop'] : microtime(true);
+                $stop      = round($overstop - $overstart, 3);
 
-            // Store and merge result.
-            $benchs[$name] = [
-                    'during'    => $stop,
+                // Store and merge result.
+                $benchs[$name] = [
+                        'during'    => $stop,
+                        'id'        => $idtest,
+                        'class'     => $this->get_feedback_class($stop, $result['limit'], $result['over']),
+                        'name'      => get_string($name.'name', 'report_benchmark'),
+                        'info'      => get_string($name.'moreinfo', 'report_benchmark'),
+                        'executed'  => true,
+                    ] + $result;
+            } else {
+                // Test not executed - add placeholder result.
+                $benchs[$name] = [
+                    'during'    => 0,
                     'id'        => $idtest,
-                    'class'     => $this->get_feedback_class($stop, $result['limit'], $result['over']),
+                    'class'     => 'muted',
                     'name'      => get_string($name.'name', 'report_benchmark'),
                     'info'      => get_string($name.'moreinfo', 'report_benchmark'),
-                ] + $result;
+                    'limit'     => 0,
+                    'over'      => 0,
+                    'executed'  => false,
+                ];
+            }
         }
 
         // Store all results.
@@ -109,6 +136,36 @@ class report_benchmark {
         // Check if the method is in the class benchmark_test.
         foreach ($methods as $method) {
             if ($method->class == __CLASS__.'_test') {
+                $tests[] = $method->name;
+            }
+        }
+
+        return $tests;
+    }
+
+    /**
+     * Get the list of available tests (public method)
+     *
+     * @return array List of test
+     */
+    public function get_available_tests() {
+        return $this->get_tests();
+    }
+
+    /**
+     * Get the list of available tests without running them (static method)
+     *
+     * @return array List of test names
+     */
+    public static function get_available_tests_static() {
+        // Get the list of all static method in the class benchmark_test.
+        $tests      = [];
+        $class      = new ReflectionClass('report_benchmark_test');
+        $methods    = $class->getMethods(ReflectionMethod::IS_STATIC);
+
+        // Check if the method is in the class benchmark_test.
+        foreach ($methods as $method) {
+            if ($method->class == 'report_benchmark_test') {
                 $tests[] = $method->name;
             }
         }
@@ -158,7 +215,9 @@ class report_benchmark {
         $total = 0;
 
         foreach ($this->results as $result) {
-            $total += $result['during'];
+            if (isset($result['executed']) && $result['executed']) {
+                $total += $result['during'];
+            }
         }
 
         return [
